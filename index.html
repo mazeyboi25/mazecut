@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
+
+  <meta name="theme-color" content="#111111" />
+
+  <meta
+    name="description"
+    content="MazeCut is a Python-powered image background remover with transparent PNG export and an interactive before-and-after comparison."
+  />
+
+  <title>MazeCut — Background Remover</title>
+
+  <link
+    rel="icon"
+    href="/assets/mazecut-mark.svg"
+    type="image/svg+xml"
+  />
+
+  <link
+    rel="preconnect"
+    href="https://fonts.googleapis.com"
+  />
+
+  <link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+    crossorigin
+  />
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  />
+
+  <link
+    rel="stylesheet"
+    href="/styles.css"
+  />
+
+  <script
+    src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"
+    defer
+  ></script>
+
+  <script
+    src="https://cdn.jsdelivr.net/npm/@studio-freight/lenis@1.0.42/dist/lenis.min.js"
+    defer
+  ></script>
+
+  <script
+    src="/script.js"
+    defer
+  ></script>
+</head>
+
+<body>
+  <noscript class="noscript">
+    MazeCut requires JavaScript to upload and process images.
+  </noscript>
+
+  <!-- =======================================================
+       FIXED HEADER
+  ======================================================== -->
+  <header class="topbar">
+
+    <a
+      class="brand"
+      href="/"
+      aria-label="MazeCut home"
+    >
+      <img
+        src="/assets/mazecut-mark.svg"
+        alt=""
+      />
+
+      <span>
+        <strong>MazeCut</strong>
+        <small>Background remover</small>
+      </span>
+    </a>
+
+
+    <div class="topbar__status">
+      <i aria-hidden="true"></i>
+      <span>Python image segmentation</span>
+    </div>
+
+
+    <a
+      class="topbar__jump"
+      href="#studio"
+    >
+      Open studio
+      <span>↓</span>
+    </a>
+
+  </header>
+
+
+  <main>
+
+    <!-- =====================================================
+         HERO
+    ====================================================== -->
+    <section class="hero">
+
+      <div class="hero__meta">
+        <span>IMAGE / 001</span>
+        <span>FOREGROUND EXTRACTION</span>
+      </div>
+
+
+      <div class="hero__grid">
+
+        <div class="hero__copy">
+
+          <p class="eyebrow">
+            Python-powered image processing
+          </p>
+
+          <h1>
+            <span>KEEP THE</span>
+            <span class="accent">SUBJECT.</span>
+            <span>LOSE THE REST.</span>
+          </h1>
+
+          <p class="hero__lede">
+            Upload a photo, let MazeCut isolate the foreground,
+            compare the result, and export a transparent PNG.
+          </p>
+
+          <a
+            class="hero__cta"
+            href="#studio"
+          >
+            Remove a background
+            <span>↘</span>
+          </a>
+
+        </div>
+
+
+        <div
+          class="hero__visual"
+          aria-hidden="true"
+        >
+
+          <div class="photo-card photo-card--original">
+            <div class="fake-person"></div>
+          </div>
+
+          <div class="photo-card photo-card--cut checkerboard">
+            <div class="fake-cutout"></div>
+          </div>
+
+          <div class="orbit orbit--one"></div>
+          <div class="orbit orbit--two"></div>
+
+          <span class="sticker sticker--one">
+            ORIGINAL
+          </span>
+
+          <span class="sticker sticker--two">
+            CUTOUT
+          </span>
+
+        </div>
+
+      </div>
+
+
+      <div class="hero__footer">
+        <span>JPG</span>
+        <span>PNG</span>
+        <span>WEBP</span>
+        <span>TRANSPARENT OUTPUT</span>
+      </div>
+
+    </section>
+
+
+    <!-- =====================================================
+         STUDIO
+    ====================================================== -->
+    <section
+      class="studio"
+      id="studio"
+    >
+
+      <div class="section-heading">
+
+        <div>
+          <p class="eyebrow">
+            01 / Studio
+          </p>
+
+          <h2>
+            Cut it clean.
+          </h2>
+        </div>
+
+        <p>
+          The first run can take longer while the lightweight
+          segmentation model initializes. After that, processing
+          should be faster.
+        </p>
+
+      </div>
+
+
+      <!-- ===================================================
+           UPLOAD STATE
+      ==================================================== -->
+      <section
+        class="upload-state"
+        id="upload-state"
+      >
+
+        <input
+          id="image-input"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          hidden
+        />
+
+
+        <div
+          class="drop-zone"
+          id="drop-zone"
+        >
+
+          <span class="corner tl"></span>
+          <span class="corner tr"></span>
+          <span class="corner bl"></span>
+          <span class="corner br"></span>
+
+
+          <div
+            class="drop-icon"
+            aria-hidden="true"
+          >
+            <span></span>
+            <b>+</b>
+          </div>
+
+
+          <span class="mono">
+            INPUT / IMAGE
+          </span>
+
+
+          <h3 id="drop-title">
+            Drop your image here.
+          </h3>
+
+
+          <p id="drop-description">
+            Or choose a photo from your device.
+          </p>
+
+
+          <button
+            class="btn btn--primary"
+            id="choose-image-button"
+            type="button"
+          >
+            Choose image
+          </button>
+
+
+          <div class="drop-limits">
+            <span>JPG · PNG · WEBP</span>
+            <span>MAX 10 MB</span>
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- ===================================================
+           PROCESSING STATE
+      ==================================================== -->
+      <section
+        class="processing-state"
+        id="processing-state"
+        hidden
+      >
+
+        <div class="processing-card">
+
+          <div class="processing-image checkerboard">
+
+            <img
+              id="processing-image"
+              alt=""
+            />
+
+            <div
+              class="scan-line"
+              aria-hidden="true"
+            ></div>
+
+          </div>
+
+
+          <div class="processing-copy">
+
+            <span class="mono">
+              PROCESSING
+            </span>
+
+            <h3>
+              Finding the subject.
+            </h3>
+
+
+            <div class="progress-row">
+
+              <span id="processing-message">
+                Uploading image
+              </span>
+
+              <strong id="processing-percent">
+                8%
+              </strong>
+
+            </div>
+
+
+            <div class="progress">
+              <i id="progress-fill"></i>
+            </div>
+
+
+            <div class="processing-steps">
+
+              <span class="active">
+                Read image
+              </span>
+
+              <span>
+                Detect subject
+              </span>
+
+              <span>
+                Create alpha
+              </span>
+
+              <span>
+                Prepare PNG
+              </span>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- ===================================================
+           RESULT WORKSPACE
+      ==================================================== -->
+      <section
+        class="result-workspace"
+        id="result-workspace"
+        hidden
+      >
+
+        <div class="result-topbar">
+
+          <div>
+            <span class="mono">
+              RESULT / READY
+            </span>
+
+            <strong id="result-file-name">
+              image.png
+            </strong>
+          </div>
+
+
+          <div>
+
+            <button
+              class="btn btn--quiet"
+              id="new-image-button"
+              type="button"
+            >
+              New image
+            </button>
+
+            <button
+              class="btn btn--primary"
+              id="download-button"
+              type="button"
+            >
+              Download PNG
+            </button>
+
+          </div>
+
+        </div>
+
+
+        <div class="result-grid">
+
+          <!-- ===============================================
+               BEFORE / AFTER
+          ================================================ -->
+          <article class="compare-card">
+
+            <div class="card-head">
+
+              <div>
+                <span class="mono">
+                  COMPARE
+                </span>
+
+                <h3>
+                  Before / after
+                </h3>
+              </div>
+
+              <span>
+                Drag the handle
+              </span>
+
+            </div>
+
+
+            <div
+              class="comparison"
+              id="comparison"
+              style="--split: 50%;"
+            >
+
+              <div
+                class="compare-layer compare-layer--result checkerboard"
+                id="result-layer"
+              >
+                <img
+                  id="result-image"
+                  alt="Background removed result"
+                />
+              </div>
+
+
+              <div class="compare-layer compare-layer--original">
+
+                <img
+                  id="original-image"
+                  alt="Original uploaded image"
+                />
+
+              </div>
+
+
+              <div
+                class="divider"
+                aria-hidden="true"
+              ></div>
+
+
+              <div
+                class="handle"
+                aria-hidden="true"
+              >
+                <span>←</span>
+                <span>→</span>
+              </div>
+
+
+              <input
+                id="comparison-range"
+                type="range"
+                min="0"
+                max="100"
+                value="50"
+                aria-label="Compare original and result"
+              />
+
+
+              <span class="compare-label before">
+                ORIGINAL
+              </span>
+
+              <span class="compare-label after">
+                CUTOUT
+              </span>
+
+            </div>
+
+          </article>
+
+
+          <!-- ===============================================
+               OUTPUT CONTROLS
+          ================================================ -->
+          <aside class="output-panel">
+
+            <div class="card-head">
+
+              <div>
+                <span class="mono">
+                  OUTPUT
+                </span>
+
+                <h3>
+                  Finish the image.
+                </h3>
+              </div>
+
+            </div>
+
+
+            <div class="control-block">
+
+              <span class="control-label">
+                Background
+              </span>
+
+
+              <div class="background-options">
+
+                <button
+                  class="bg-option active"
+                  data-background="transparent"
+                  type="button"
+                >
+                  <i class="checkerboard"></i>
+                  <span>Transparent</span>
+                </button>
+
+
+                <button
+                  class="bg-option"
+                  data-background="white"
+                  type="button"
+                >
+                  <i style="background: #ffffff;"></i>
+                  <span>White</span>
+                </button>
+
+
+                <button
+                  class="bg-option"
+                  data-background="black"
+                  type="button"
+                >
+                  <i style="background: #111111;"></i>
+                  <span>Black</span>
+                </button>
+
+
+                <button
+                  class="bg-option"
+                  data-background="custom"
+                  type="button"
+                >
+                  <i
+                    id="custom-color-preview"
+                    style="background: #ff5a36;"
+                  ></i>
+
+                  <span>Custom</span>
+                </button>
+
+              </div>
+
+
+              <label
+                class="color-row"
+                id="custom-color-row"
+                hidden
+              >
+
+                <span>
+                  Custom color
+                </span>
+
+                <input
+                  id="background-color"
+                  type="color"
+                  value="#ff5a36"
+                />
+
+              </label>
+
+            </div>
+
+
+            <div class="control-block">
+
+              <span class="control-label">
+                File
+              </span>
+
+
+              <div class="file-details">
+
+                <div>
+                  <span>Format</span>
+                  <strong>PNG</strong>
+                </div>
+
+                <div>
+                  <span>Transparency</span>
+                  <strong id="transparency-label">
+                    YES
+                  </strong>
+                </div>
+
+                <div>
+                  <span>Original</span>
+                  <strong id="original-dimensions">
+                    —
+                  </strong>
+                </div>
+
+                <div>
+                  <span>Output</span>
+                  <strong id="output-dimensions">
+                    —
+                  </strong>
+                </div>
+
+              </div>
+
+            </div>
+
+
+            <button
+              class="btn btn--download"
+              id="panel-download-button"
+              type="button"
+            >
+              <span>
+                Download result
+              </span>
+
+              <span>
+                ↓
+              </span>
+            </button>
+
+          </aside>
+
+        </div>
+
+      </section>
+
+    </section>
+
+
+    <!-- =====================================================
+         PROCESS SECTION
+    ====================================================== -->
+    <section class="process-section">
+
+      <div class="section-heading compact">
+
+        <div>
+
+          <p class="eyebrow">
+            02 / Process
+          </p>
+
+          <h2>
+            Three moves.
+          </h2>
+
+        </div>
+
+      </div>
+
+
+      <div class="process-grid">
+
+        <article>
+
+          <span>
+            01
+          </span>
+
+          <div class="process-icon">
+            ↑
+          </div>
+
+          <h3>
+            Upload
+          </h3>
+
+          <p>
+            Choose a JPG, PNG, or WEBP image directly
+            from your device.
+          </p>
+
+        </article>
+
+
+        <article>
+
+          <span>
+            02
+          </span>
+
+          <div class="process-icon cut">
+            ╱
+          </div>
+
+          <h3>
+            Segment
+          </h3>
+
+          <p>
+            Python identifies the foreground and generates
+            an alpha mask.
+          </p>
+
+        </article>
+
+
+        <article>
+
+          <span>
+            03
+          </span>
+
+          <div class="process-icon">
+            ↓
+          </div>
+
+          <h3>
+            Export
+          </h3>
+
+          <p>
+            Compare the result and save it as a clean PNG.
+          </p>
+
+        </article>
+
+      </div>
+
+    </section>
+
+  </main>
+
+
+  <!-- =======================================================
+       FOOTER
+  ======================================================== -->
+  <footer class="footer">
+
+    <div>
+      <strong>
+        MazeCut
+      </strong>
+
+      <span>
+        Python-powered background removal.
+      </span>
+    </div>
+
+
+    <div>
+      <span>PYTHON</span>
+      <span>FASTAPI</span>
+      <span>REMBG</span>
+      <span>ONNX</span>
+    </div>
+
+
+    <a href="#studio">
+      Try another image ↑
+    </a>
+
+  </footer>
+
+
+  <!-- =======================================================
+       TOAST
+  ======================================================== -->
+  <div
+    class="toast"
+    id="toast"
+    role="status"
+    aria-live="polite"
+  ></div>
+
+</body>
+</html>

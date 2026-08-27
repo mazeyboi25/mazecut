@@ -1,0 +1,41 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 64 64"
+  role="img"
+  aria-label="MazeCut"
+>
+  <rect
+    width="64"
+    height="64"
+    rx="18"
+    fill="#f2eee4"
+  />
+
+  <path
+    d="M17 17h22v8H25v14h14v8H17V17Z"
+    fill="#111111"
+  />
+
+  <path
+    d="M47 14 30 32l17 18"
+    fill="none"
+    stroke="#ff5a36"
+    stroke-width="6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <circle
+    cx="47"
+    cy="14"
+    r="5"
+    fill="#f6c453"
+  />
+
+  <circle
+    cx="47"
+    cy="50"
+    r="5"
+    fill="#ff5a36"
+  />
+</svg>
