@@ -125,7 +125,7 @@
      ========================================================== */
 
   const MAX_FILE_SIZE =
-    10 *
+    3.5 *
     1024 *
     1024;
 
@@ -426,7 +426,7 @@
       return {
         valid: false,
         message:
-          "This image is larger than the 10 MB limit."
+          "This image is larger than the 3.5 MB limit."
       };
     }
 
@@ -464,6 +464,11 @@
      */
 
     clearObjectUrls();
+
+
+    elements.dropZone.classList.remove(
+      "has-error"
+    );
 
 
     state.file =
@@ -700,6 +705,11 @@
 
       showView(
         "upload"
+      );
+
+
+      elements.dropZone.classList.add(
+        "has-error"
       );
 
 
@@ -1095,6 +1105,11 @@
 
     elements.resultImage.removeAttribute(
       "src"
+    );
+
+
+    elements.dropZone.classList.remove(
+      "has-error"
     );
 
 

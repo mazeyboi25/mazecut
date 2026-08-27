@@ -2,29 +2,15 @@ from __future__ import annotations
 
 import io
 import os
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi import File
 from fastapi import HTTPException
 from fastapi import UploadFile
 
-from fastapi.responses import FileResponse
 from fastapi.responses import Response
 
-from fastapi.staticfiles import StaticFiles
-
 from PIL import Image
-
-from rembg import new_session
-from rembg import remove
-
-
-# ============================================================
-# PROJECT PATHS
-# ============================================================
-
-ROOT = Path(__file__).resolve().parent
 
 
 # ============================================================
@@ -32,27 +18,33 @@ ROOT = Path(__file__).resolve().parent
 # ============================================================
 
 app = FastAPI(
-    title="MazeCut",
-    description="Python-powered image background remover.",
-)
-
-
-# Serve the logo and any future static assets.
-
-app.mount(
-    "/assets",
-    StaticFiles(directory=ROOT / "assets"),
-    name="assets",
+    title="MazeCut API",
+    description="Lightweight Python background-removal endpoint.",
 )
 
 
 # ============================================================
-# UPLOAD LIMITS
+# VERCEL / MODEL CONFIGURATION
 # ============================================================
 
-MAX_FILE_SIZE = 10 * 1024 * 1024
+# Vercel Functions have a limited request/response payload.
+# Keep a safe margin under the platform limit.
+MAX_FILE_SIZE = 3_500_000
 
-SUPPORTED_CONTENT_TYPES = {
+# Resize large images BEFORE AI inference. This reduces RAM,
+# CPU time, model latency, and output size.
+MAX_IMAGE_SIDE = 1400
+
+# Keep model files in a writable location on serverless runtimes.
+#
+# rembg reads U2NET_HOME when it initializes. /tmp is writable
+# inside Vercel Functions.
+os.environ.setdefault(
+    "U2NET_HOME",
+    "/tmp/.u2net",
+)
+
+SUPPORTED_TYPES = {
     "image/jpeg",
     "image/png",
     "image/webp",
@@ -60,23 +52,30 @@ SUPPORTED_CONTENT_TYPES = {
 
 
 # ============================================================
-# REMBG MODEL SESSION
+# LAZY REMBG SESSION
 # ============================================================
 
+# Do not import rembg / ONNX at module startup.
+#
+# This allows /api/health to start with a much lighter import
+# path and avoids initializing the model until an image is
+# actually submitted.
 _rembg_session = None
 
 
 def get_rembg_session():
     """
-    Load the lightweight U2-Net model once per Python process.
+    Create the lightweight u2netp model session on first use.
 
-    The first request can take longer because rembg / ONNX
-    needs to initialize the model.
+    Vercel can reuse a warm function instance, so later requests
+    handled by the same instance can reuse this session.
     """
 
     global _rembg_session
 
     if _rembg_session is None:
+        from rembg import new_session
+
         _rembg_session = new_session(
             "u2netp"
         )
@@ -85,34 +84,8 @@ def get_rembg_session():
 
 
 # ============================================================
-# FRONTEND ROUTES
-# ============================================================
-
-@app.get("/")
-def serve_index():
-    return FileResponse(
-        ROOT / "index.html"
-    )
-
-
-@app.get("/styles.css")
-def serve_styles():
-    return FileResponse(
-        ROOT / "styles.css",
-        media_type="text/css",
-    )
-
-
-@app.get("/script.js")
-def serve_script():
-    return FileResponse(
-        ROOT / "script.js",
-        media_type="application/javascript",
-    )
-
-
-# ============================================================
-# HEALTH ENDPOINT
+# HEALTH CHECK
+# Important: Vercel's api/index.py receives the FULL /api path.
 # ============================================================
 
 @app.get("/api/health")
@@ -121,11 +94,13 @@ def health():
         "ok": True,
         "service": "MazeCut",
         "model": "u2netp",
+        "max_upload_bytes": MAX_FILE_SIZE,
+        "max_image_side": MAX_IMAGE_SIDE,
     }
 
 
 # ============================================================
-# BACKGROUND REMOVAL ENDPOINT
+# BACKGROUND REMOVAL
 # ============================================================
 
 @app.post("/api/remove")
@@ -133,15 +108,23 @@ async def remove_background(
     image: UploadFile = File(...)
 ):
     """
-    Accept a JPG / PNG / WEBP image and return a PNG
-    containing an alpha channel with the background removed.
+    Remove the image background and return a transparent PNG.
+
+    Optimizations for a serverless deployment:
+    - Small upload ceiling
+    - Decode validation with Pillow
+    - Resize before inference
+    - Lazy rembg / ONNX import
+    - Lightweight u2netp model
+    - No alpha matting
+    - Compressed PNG response
     """
 
     # --------------------------------------------------------
-    # Validate MIME type
+    # Validate upload type
     # --------------------------------------------------------
 
-    if image.content_type not in SUPPORTED_CONTENT_TYPES:
+    if image.content_type not in SUPPORTED_TYPES:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -167,12 +150,15 @@ async def remove_background(
     if len(raw_bytes) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=413,
-            detail="The image exceeds the 10 MB upload limit.",
+            detail=(
+                "The image is too large. "
+                "MazeCut supports files up to 3.5 MB."
+            ),
         )
 
 
     # --------------------------------------------------------
-    # Decode with Pillow
+    # Decode image
     # --------------------------------------------------------
 
     try:
@@ -197,60 +183,100 @@ async def remove_background(
 
 
     # --------------------------------------------------------
-    # Resize very large images
+    # Resize BEFORE segmentation
     # --------------------------------------------------------
 
-    max_side = int(
-        os.getenv(
-            "MAZECUT_MAX_SIDE",
-            "2200",
-        )
-    )
-
-
-    if max(source_image.size) > max_side:
+    if max(source_image.size) > MAX_IMAGE_SIDE:
         source_image.thumbnail(
-            (max_side, max_side),
+            (
+                MAX_IMAGE_SIDE,
+                MAX_IMAGE_SIDE
+            ),
             Image.Resampling.LANCZOS,
         )
 
 
     # --------------------------------------------------------
-    # Convert source to PNG bytes
+    # Convert input to PNG bytes
     # --------------------------------------------------------
 
     source_buffer = io.BytesIO()
 
-
     source_image.save(
         source_buffer,
         format="PNG",
+        optimize=True,
     )
 
 
     # --------------------------------------------------------
-    # Run foreground segmentation
+    # Lazy-load rembg only for a real processing request
     # --------------------------------------------------------
 
     try:
+        from rembg import remove
+
         output_bytes = remove(
             source_buffer.getvalue(),
             session=get_rembg_session(),
             alpha_matting=False,
+            post_process_mask=False,
         )
 
     except Exception as error:
         raise HTTPException(
             status_code=500,
             detail=(
-                "The segmentation model could not process "
-                "this image. Try a smaller or clearer image."
+                "The background-removal model could not run "
+                "on this server instance. Please try again."
             ),
         ) from error
 
 
     # --------------------------------------------------------
-    # Return transparent PNG
+    # Compress result PNG
+    # --------------------------------------------------------
+
+    try:
+        result_image = Image.open(
+            io.BytesIO(output_bytes)
+        )
+
+        result_image.load()
+
+        result_buffer = io.BytesIO()
+
+        result_image.save(
+            result_buffer,
+            format="PNG",
+            optimize=True,
+            compress_level=9,
+        )
+
+        output_bytes = result_buffer.getvalue()
+
+    except Exception:
+        # rembg already returns valid PNG bytes. If secondary
+        # compression fails, return the original result.
+        pass
+
+
+    # --------------------------------------------------------
+    # Keep response below the serverless payload ceiling
+    # --------------------------------------------------------
+
+    if len(output_bytes) > 4_000_000:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "The processed PNG is too large to return. "
+                "Try a smaller image."
+            ),
+        )
+
+
+    # --------------------------------------------------------
+    # Return PNG
     # --------------------------------------------------------
 
     return Response(

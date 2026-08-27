@@ -3058,3 +3058,37 @@ svg {
   }
 
 }
+
+
+/* ============================================================
+   24. API / PROCESSING FAILURE POLISH
+   ============================================================ */
+
+.drop-zone.has-error {
+  border-color:
+    rgba(255, 105, 105, 0.56);
+
+  background:
+    radial-gradient(
+      circle at 50% 35%,
+      rgba(255, 105, 105, 0.10),
+      transparent 38%
+    ),
+    #191919;
+}
+
+
+.drop-zone.has-error .mono {
+  color:
+    var(--danger);
+}
+
+
+@media (max-width: 700px) {
+
+  .drop-zone.has-error {
+    border-color:
+      rgba(255, 105, 105, 0.62);
+  }
+
+}
