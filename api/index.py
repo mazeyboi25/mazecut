@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import io
-import os
+from pathlib import Path
+from threading import Lock
+
+import numpy as np
+import onnxruntime as ort
 
 from fastapi import FastAPI
 from fastapi import File
@@ -11,6 +15,7 @@ from fastapi import UploadFile
 from fastapi.responses import Response
 
 from PIL import Image
+from PIL import ImageOps
 
 
 # ============================================================
@@ -19,30 +24,32 @@ from PIL import Image
 
 app = FastAPI(
     title="MazeCut API",
-    description="Lightweight Python background-removal endpoint.",
+    description=(
+        "Lightweight U2NetP background removal "
+        "without the full rembg dependency stack."
+    ),
 )
 
 
 # ============================================================
-# VERCEL / MODEL CONFIGURATION
+# PATHS / LIMITS
 # ============================================================
 
-# Vercel Functions have a limited request/response payload.
-# Keep a safe margin under the platform limit.
+API_ROOT = Path(__file__).resolve().parent
+
+MODEL_PATH = (
+    API_ROOT
+    / "models"
+    / "u2netp.onnx"
+)
+
+
 MAX_FILE_SIZE = 3_500_000
 
-# Resize large images BEFORE AI inference. This reduces RAM,
-# CPU time, model latency, and output size.
-MAX_IMAGE_SIDE = 1400
+MAX_IMAGE_SIDE = 1280
 
-# Keep model files in a writable location on serverless runtimes.
-#
-# rembg reads U2NET_HOME when it initializes. /tmp is writable
-# inside Vercel Functions.
-os.environ.setdefault(
-    "U2NET_HOME",
-    "/tmp/.u2net",
-)
+MODEL_INPUT_SIZE = 320
+
 
 SUPPORTED_TYPES = {
     "image/jpeg",
@@ -52,48 +59,280 @@ SUPPORTED_TYPES = {
 
 
 # ============================================================
-# LAZY REMBG SESSION
+# ONNX SESSION CACHE
 # ============================================================
 
-# Do not import rembg / ONNX at module startup.
-#
-# This allows /api/health to start with a much lighter import
-# path and avoids initializing the model until an image is
-# actually submitted.
-_rembg_session = None
+_session = None
+_session_lock = Lock()
 
 
-def get_rembg_session():
+def get_session():
     """
-    Create the lightweight u2netp model session on first use.
+    Initialize ONNX Runtime only when the first image is processed.
 
-    Vercel can reuse a warm function instance, so later requests
-    handled by the same instance can reuse this session.
+    The session is cached so a warm Vercel function can reuse it.
     """
 
-    global _rembg_session
+    global _session
 
-    if _rembg_session is None:
-        from rembg import new_session
 
-        _rembg_session = new_session(
-            "u2netp"
+    if _session is not None:
+        return _session
+
+
+    with _session_lock:
+        if _session is not None:
+            return _session
+
+
+        if not MODEL_PATH.exists():
+            raise RuntimeError(
+                "u2netp.onnx is missing. "
+                "Run `python download_model.py` before deploying."
+            )
+
+
+        options = ort.SessionOptions()
+
+
+        # Hobby functions provide one vCPU. Limiting ONNX to one
+        # thread avoids wasteful thread creation and reduces memory.
+        options.intra_op_num_threads = 1
+        options.inter_op_num_threads = 1
+
+
+        options.graph_optimization_level = (
+            ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         )
 
-    return _rembg_session
+
+        _session = ort.InferenceSession(
+            str(MODEL_PATH),
+            sess_options=options,
+            providers=[
+                "CPUExecutionProvider"
+            ],
+        )
+
+
+    return _session
+
+
+# ============================================================
+# U2NETP PREPROCESSING
+# ============================================================
+
+def build_model_input(
+    image: Image.Image
+) -> np.ndarray:
+    """
+    Reproduce the U2NetP normalization used by rembg.
+
+    The segmentation model itself always receives a 320x320 image.
+    """
+
+    resized = (
+        image
+        .convert("RGB")
+        .resize(
+            (
+                MODEL_INPUT_SIZE,
+                MODEL_INPUT_SIZE
+            ),
+            Image.Resampling.LANCZOS,
+        )
+    )
+
+
+    image_array = np.asarray(
+        resized,
+        dtype=np.float32,
+    )
+
+
+    maximum = max(
+        float(
+            np.max(
+                image_array
+            )
+        ),
+        1e-6,
+    )
+
+
+    image_array = (
+        image_array
+        / maximum
+    )
+
+
+    normalized = np.empty(
+        image_array.shape,
+        dtype=np.float32,
+    )
+
+
+    normalized[:, :, 0] = (
+        (
+            image_array[:, :, 0]
+            - 0.485
+        )
+        / 0.229
+    )
+
+
+    normalized[:, :, 1] = (
+        (
+            image_array[:, :, 1]
+            - 0.456
+        )
+        / 0.224
+    )
+
+
+    normalized[:, :, 2] = (
+        (
+            image_array[:, :, 2]
+            - 0.406
+        )
+        / 0.225
+    )
+
+
+    normalized = normalized.transpose(
+        (
+            2,
+            0,
+            1
+        )
+    )
+
+
+    return np.expand_dims(
+        normalized,
+        axis=0,
+    ).astype(
+        np.float32,
+        copy=False,
+    )
+
+
+# ============================================================
+# MASK CREATION
+# ============================================================
+
+def predict_mask(
+    image: Image.Image
+) -> Image.Image:
+    """
+    Run U2NetP and convert its first output into an alpha mask.
+    """
+
+    session = get_session()
+
+
+    model_input = build_model_input(
+        image
+    )
+
+
+    input_name = (
+        session
+        .get_inputs()[0]
+        .name
+    )
+
+
+    outputs = session.run(
+        None,
+        {
+            input_name:
+                model_input
+        },
+    )
+
+
+    prediction = outputs[0][
+        :,
+        0,
+        :,
+        :
+    ]
+
+
+    maximum = float(
+        np.max(
+            prediction
+        )
+    )
+
+
+    minimum = float(
+        np.min(
+            prediction
+        )
+    )
+
+
+    difference = (
+        maximum
+        - minimum
+    )
+
+
+    if difference <= 1e-8:
+        normalized = np.zeros_like(
+            prediction,
+            dtype=np.float32,
+        )
+    else:
+        normalized = (
+            prediction
+            - minimum
+        ) / difference
+
+
+    normalized = np.squeeze(
+        normalized
+    )
+
+
+    mask_array = (
+        np.clip(
+            normalized,
+            0.0,
+            1.0,
+        )
+        * 255.0
+    ).astype(
+        np.uint8
+    )
+
+
+    mask = Image.fromarray(
+        mask_array,
+        mode="L",
+    )
+
+
+    return mask.resize(
+        image.size,
+        Image.Resampling.LANCZOS,
+    )
 
 
 # ============================================================
 # HEALTH CHECK
-# Important: Vercel's api/index.py receives the FULL /api path.
 # ============================================================
 
-@app.get("/api/health")
+@app.get("/api")
 def health():
     return {
         "ok": True,
         "service": "MazeCut",
+        "engine": "direct-onnx",
         "model": "u2netp",
+        "model_present": MODEL_PATH.exists(),
         "max_upload_bytes": MAX_FILE_SIZE,
         "max_image_side": MAX_IMAGE_SIDE,
     }
@@ -103,25 +342,16 @@ def health():
 # BACKGROUND REMOVAL
 # ============================================================
 
-@app.post("/api/remove")
+@app.post("/api")
 async def remove_background(
     image: UploadFile = File(...)
 ):
     """
-    Remove the image background and return a transparent PNG.
-
-    Optimizations for a serverless deployment:
-    - Small upload ceiling
-    - Decode validation with Pillow
-    - Resize before inference
-    - Lazy rembg / ONNX import
-    - Lightweight u2netp model
-    - No alpha matting
-    - Compressed PNG response
+    Accept JPG / PNG / WEBP and return a transparent PNG.
     """
 
     # --------------------------------------------------------
-    # Validate upload type
+    # Validate type
     # --------------------------------------------------------
 
     if image.content_type not in SUPPORTED_TYPES:
@@ -163,10 +393,20 @@ async def remove_background(
 
     try:
         source_image = Image.open(
-            io.BytesIO(raw_bytes)
+            io.BytesIO(
+                raw_bytes
+            )
         )
 
+
         source_image.load()
+
+
+        # Correct camera orientation before segmentation.
+        source_image = ImageOps.exif_transpose(
+            source_image
+        )
+
 
         source_image = source_image.convert(
             "RGBA"
@@ -183,7 +423,7 @@ async def remove_background(
 
 
     # --------------------------------------------------------
-    # Resize BEFORE segmentation
+    # Resize very large images before inference / output.
     # --------------------------------------------------------
 
     if max(source_image.size) > MAX_IMAGE_SIDE:
@@ -197,74 +437,66 @@ async def remove_background(
 
 
     # --------------------------------------------------------
-    # Convert input to PNG bytes
-    # --------------------------------------------------------
-
-    source_buffer = io.BytesIO()
-
-    source_image.save(
-        source_buffer,
-        format="PNG",
-        optimize=True,
-    )
-
-
-    # --------------------------------------------------------
-    # Lazy-load rembg only for a real processing request
+    # Run ONNX segmentation
     # --------------------------------------------------------
 
     try:
-        from rembg import remove
-
-        output_bytes = remove(
-            source_buffer.getvalue(),
-            session=get_rembg_session(),
-            alpha_matting=False,
-            post_process_mask=False,
+        alpha_mask = predict_mask(
+            source_image
         )
+
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=503,
+            detail=str(
+                error
+            ),
+        ) from error
 
     except Exception as error:
         raise HTTPException(
             status_code=500,
             detail=(
-                "The background-removal model could not run "
-                "on this server instance. Please try again."
+                "The ONNX segmentation model failed to run. "
+                "Check the Vercel function logs for the exact error."
             ),
         ) from error
 
 
     # --------------------------------------------------------
-    # Compress result PNG
+    # Apply mask
     # --------------------------------------------------------
 
-    try:
-        result_image = Image.open(
-            io.BytesIO(output_bytes)
-        )
+    result_image = source_image.copy()
 
-        result_image.load()
 
-        result_buffer = io.BytesIO()
-
-        result_image.save(
-            result_buffer,
-            format="PNG",
-            optimize=True,
-            compress_level=9,
-        )
-
-        output_bytes = result_buffer.getvalue()
-
-    except Exception:
-        # rembg already returns valid PNG bytes. If secondary
-        # compression fails, return the original result.
-        pass
+    result_image.putalpha(
+        alpha_mask
+    )
 
 
     # --------------------------------------------------------
-    # Keep response below the serverless payload ceiling
+    # Encode optimized PNG
     # --------------------------------------------------------
 
+    output_buffer = io.BytesIO()
+
+
+    result_image.save(
+        output_buffer,
+        format="PNG",
+        optimize=True,
+        compress_level=9,
+    )
+
+
+    output_bytes = (
+        output_buffer
+        .getvalue()
+    )
+
+
+    # Keep a margin under the response payload limit.
     if len(output_bytes) > 4_000_000:
         raise HTTPException(
             status_code=413,
@@ -275,17 +507,14 @@ async def remove_background(
         )
 
 
-    # --------------------------------------------------------
-    # Return PNG
-    # --------------------------------------------------------
-
     return Response(
         content=output_bytes,
         media_type="image/png",
         headers={
-            "Cache-Control": "no-store",
-            "Content-Disposition": (
-                'inline; filename="mazecut-result.png"'
-            ),
+            "Cache-Control":
+                "no-store",
+
+            "Content-Disposition":
+                'inline; filename="mazecut-result.png"',
         },
     )

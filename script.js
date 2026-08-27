@@ -558,7 +558,7 @@
     try {
       const response =
         await fetch(
-          "/api/remove",
+          "/api",
           {
             method: "POST",
             body: formData
